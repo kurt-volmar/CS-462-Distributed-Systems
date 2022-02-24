@@ -1,12 +1,23 @@
 ruleset manage_sensors {
     meta {
-        shares sensors
+        shares sensors, all_temperatures
+
+        use module io.picolabs.wrangler alias wrangler
     }
 
     global {
         sensors = function() {
             ent:children.defaultsTo({})
         }
+
+        all_temperatures = function() {
+            return sensors().map(function(v,k) {
+                wrangler:picoQuery(v, "temperature_store", "temperatures", {})
+            })
+        }
+
+        default_threshold = 78
+        default_number = "801-549-7921"
     }
 
     rule new_sensor {
@@ -23,19 +34,6 @@ ruleset manage_sensors {
         }
     }
 
-    rule remove_sensor {
-        select when sensor remove
-        pre {
-            name = event:attrs{"name"}
-            eci = sensors(){name}
-        }
-
-        always {            
-            raise wrangler event "child_deletion_request"
-                attributes{"eci": eci}
-        }
-    }
-
     rule child_initialized {
         select when wrangler child_initialized
 
@@ -45,19 +43,55 @@ ruleset manage_sensors {
         }
 
         always {
-            raise child_rulesets event "install" attributes {"eci": eci}
             ent:children := ent:children.defaultsTo({}).put(name, eci)
+            raise child_rulesets event "install" attributes {"eci": eci}
         }
     }
 
-    rule child_deleted {
-        select when wrangler child_deleted
+    rule initialize_state {
+        select when sensor rulesets_installed
+
         pre {
-            eci = event:attrs{"eci"}.klog("YARGY")
+            child_name = event:attrs{"name"}
+            child_eci = event:attrs{"eci"}
         }
 
-        always {
-            ent:children := sensors().filter(function(v, k){v != eci})
+        event:send({ 
+            "eci": child_eci, 
+            "eid": "initialize_sensor",
+            "domain": "sensor", 
+            "type": "profile_updated",
+            "attrs": {
+                "name": child_name,
+                "threshold": default_threshold,
+                "phone": default_number
+            }
+        })
+      }
+
+    rule remove_sensor {
+        select when sensor unneeded_sensor
+        pre {
+            name = event:attrs{"name"}
+            eci = sensors(){name}
+        }
+
+        always {            
+            ent:children := sensors().delete(name)
+            raise wrangler event "child_deletion_request"
+                attributes{"eci": eci}
         }
     }
+
+    // rule child_deleted {
+    //     select when wrangler child_deleted
+    //     pre {
+    //         eci = event:attrs{"eci"}.klog("YARGY")
+    //     }
+
+    //     always {
+    //         ent:children := sensors().filter(function(v, k){v != eci})
+    //     }
+    // }
+
 }

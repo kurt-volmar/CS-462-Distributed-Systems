@@ -14,7 +14,7 @@ def create_child(parent_eci, child_name):
 
 def delete_child(parent_eci, child_name):
     url = f"http://localhost:3000/sky/event/{parent_eci}/none/sensor/unneeded_sensor?name={child_name}"
-    requests.post(url)g
+    requests.post(url)
 
 def delete_all_children(parent_eci, sensor_names):
     for name in sensor_names:

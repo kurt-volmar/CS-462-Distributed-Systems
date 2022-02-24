@@ -13,7 +13,7 @@ ruleset sensor_profile {
             {
                 "name": ent:name.defaultsTo("Sensor"),
                 "threshold": ent:threshold.defaultsTo(79),
-                "phone": ent:phone.defaultsTo("801-549-7921")
+                "phone": ent:phone.defaultsTo("801-549-7922")
             }
         }
 

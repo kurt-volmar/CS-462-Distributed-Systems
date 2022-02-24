@@ -11,7 +11,7 @@ ruleset manage_sensors {
         }
 
         all_temperatures = function() {
-            return sensors().map(function(v,k) {
+            sensors().map(function(v,k) {
                 wrangler:picoQuery(v, "temperature_store", "temperatures", {})
             })
         }
@@ -82,16 +82,5 @@ ruleset manage_sensors {
                 attributes{"eci": eci}
         }
     }
-
-    // rule child_deleted {
-    //     select when wrangler child_deleted
-    //     pre {
-    //         eci = event:attrs{"eci"}.klog("YARGY")
-    //     }
-
-    //     always {
-    //         ent:children := sensors().filter(function(v, k){v != eci})
-    //     }
-    // }
 
 }

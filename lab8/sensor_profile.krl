@@ -56,33 +56,49 @@ ruleset sensor_profile {
 
     rule approve_manager_subs {
         select when wrangler inbound_pending_subscription_added
-            where event:attrs{"Tx_role"}.match(re#manager#)
 
         always {
             raise wrangler event "pending_subscription_approval" attributes event:attrs.put("name", wrangler:myself(){"name"})
         }
     }
 
-    rule threshold_violation {
-        select when wovyn threshold_violation
-            foreach subs:established() setting (sub)
+    // rule threshold_violation {
+    //     select when wovyn threshold_violation
+    //         foreach subs:established() setting (sub)
 
+    //     pre {
+    //         temperature = event:attrs{"temperature"}
+    //         profile = sensor_profile()
+    //         sub_Tx = sub{"Tx"}.klog("SUB TX:")
+    //     }
+
+    //     event:send({ 
+    //         "domain": "sensor", 
+    //         "type": "threshold_violation",
+    //         "eci": sub_Tx, 
+    //         "eid": "threshold-violation",
+    //         "attrs": {
+    //             "temperature": temperature,
+    //             "threshold": profile{"threshold"},
+    //             "sensor_name": profile{"name"}
+    //         }
+    //     })
+    // }
+
+    rule peer_sub {
+        select when gossip_setup peer_sub
+        
         pre {
-            temperature = event:attrs{"temperature"}
-            profile = sensor_profile()
-            sub_Tx = sub{"Tx"}.klog("SUB TX:")
+            other_eci = event:attrs{"other_eci"}
         }
 
-        event:send({ 
-            "domain": "sensor", 
-            "type": "threshold_violation",
-            "eci": sub_Tx, 
-            "eid": "threshold-violation",
-            "attrs": {
-                "temperature": temperature,
-                "threshold": profile{"threshold"},
-                "sensor_name": profile{"name"}
+        always {
+            raise wrangler event "subscription" attributes {
+                "name": "gossip",
+                "wellKnown_Tx": other_eci,
+                "Rx_role": "peer",
+                "Tx_role": "peer"
             }
-        })
+        }
     }
 }

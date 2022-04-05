@@ -1,6 +1,6 @@
 ruleset manage_sensors {
     meta {
-        shares children, sensor_subs, all_temperatures, reports, latest_reports
+        shares children, sensor_subs, all_temperatures
         use module io.picolabs.wrangler alias wrangler
         use module io.picolabs.subscription alias subs
     }
@@ -20,21 +20,28 @@ ruleset manage_sensors {
             })
         }
 
-        reports = function() {
-            ent:reports.defaultsTo({})
-        }
-
         rcis = function() {
             ent:rcis.defaultsTo([])
         }
 
-        latest_reports = function() {
-            n = rcis().length() >= 5 => 4 | rcis().length()
-            rcis()
-                .reverse()
-                .slice(n)
-                .map(function(x){reports(){x}.put({"rci":x})})
+        gossip_setup_config = {
+            "nodes": ["A", "B", "C", "D", "E"],
+            "subs": {
+                "A": ["B"],
+                "B": ["C", "D"],
+                "C": ["D"],
+                "D": ["E"],
+                "E": []
+            }
         }
+
+        // gossip_setup_config = {
+        //     "nodes": ["A", "B"],
+        //     "subs": {
+        //         "A": ["B"],
+        //         "B": []
+        //     }
+        // }
 
         default_threshold = 78
 
@@ -135,24 +142,6 @@ ruleset manage_sensors {
         })
     }
 
-    rule sensor_threshold_violation {
-        select when sensor threshold_violation
-
-        pre {
-            sensor_name = event:attrs{"sensor_name"}
-            threshold = event:attrs{"threshold"}
-            temperature = event:attrs{"temperature"}
-        }
-
-        always {
-            raise profile event "send_threshold_alert" attributes {
-                "sensor_name": sensor_name,
-                "threshold": threshold,
-                "temperature": temperature
-            }
-        }
-    }
-
     rule remove_sensor {
         select when sensor unneeded_sensor
 
@@ -168,79 +157,61 @@ ruleset manage_sensors {
         }
     }
 
-    rule start_report {
-        select when manager report_start
-
-        pre {
-            rci = random:uuid()
-            report = {
-                "scattered": sensor_subs().length(),
-                "gathered": 0,
-                "readings": [],
-                "started": time:now()
-            }
-        }
+    rule create_gossip_cluster_nodes {
+        select when gossip_setup create_cluster_nodes
+            foreach gossip_setup_config{"nodes"} setting (node)
 
         always {
-            ent:reports := reports().put([rci], report)
-            ent:rcis := rcis().append(rci)
-            raise manager event "report_start_scatter"
-                attributes {"rci": rci}
+            raise sensor event "new" attributes{"name": node}
         }
     }
 
-    rule start_report_scatter {
-        select when manager report_start_scatter
-            foreach sensor_subs() setting(sensor)
+    rule create_gossip_cluster_subs {
+        select when gossip_setup create_cluster_subs
+            foreach gossip_setup_config{"nodes"} setting(node)
+            foreach gossip_setup_config{["subs", node]} setting(other)
 
+        always {
+            raise gossip_setup event "create_sub" attributes {
+                "node": node,
+                "other": other
+            }
+        }    
+    }
+
+    rule create_gossip_cluster_sub {
+        select when gossip_setup create_sub
         pre {
-            rci = event:attrs{"rci"}
-            sensor_Tx = sensor{"Tx"}
-            sensor_Rx = sensor{"Rx"}
+            node = event:attrs{"node"}
+            node_eci = children(){[node, "eci"]}
+            node_sub_id = children(){[node, "sub_id"]}
+            node_sub = sensor_subs().filter(function(x){x{"Id"} == node_sub_id}).klog("node_sub")
+            node_Tx = node_sub[0]{"Tx"}.klog("node_Tx")
+
+            other = event:attrs{"other"}
+            other_eci = children(){[other, "eci"]}.klog("OTHER_ECI")
+            other_wellknown = wrangler:picoQuery(other_eci, "io.picolabs.subscription","wellKnown_Rx"){"id"}.klog("OTHER_WELLKNOWN")
         }
 
         event:send({ 
-            "eci": sensor_Tx, 
-            "eid": "report",
-            "domain": "sensor", 
-            "type": "report_start",
+            "eci": node_Tx, 
+            "eid": "initialize_sensor",
+            "domain": "gossip_setup", 
+            "type": "peer_sub",
             "attrs": {
-                "rci": rci,
-                "Tx": sensor_Tx,
-                "Rx": sensor_Rx
+                "other_eci": other_wellknown
             }
         })
     }
 
-    rule aggregate_report {
-        select when manager report_collect
 
-        pre {
-            rci = event:attrs{"rci"}
 
-            report = reports(){rci}
-            readings = report{"readings"}
-            scattered = report{"scattered"}
-            gathered = report{"gathered"}
+    rule teardown_gossip_cluster {
+        select when gossip_setup teardown_cluster
+            foreach gossip_setup_config{"nodes"} setting (node)
 
-            sensor_Tx = event:attrs{"Rx"}
-            temperature = event:attrs{"temperature"}
-            reading = {"sensor_Tx": sensor_Tx}.put(temperature)
-        }
-        
         always {
-            new_report = report
-                .set("gathered", gathered + 1)
-                .set("readings", readings.append(reading))
-            ent:reports := reports().set(rci, new_report)
-        }
-    }
-
-    rule clear_reports {
-        select when manager reports_clear
-        always {
-            ent:reports := {}
-            ent:rcis := []
+            raise sensor event "unneeded_sensor" attributes{"name": node}
         }
     }
 }

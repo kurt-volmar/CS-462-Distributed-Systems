@@ -12,6 +12,7 @@ ruleset child_ruleset_installer {
             raise child_install_ruleset event "sensor_profile" attributes {"eci": eci}
             raise child_install_ruleset event "wovyn_base" attributes {"eci": eci}
             raise child_install_ruleset event "temperature_store" attributes {"eci": eci}
+            raise child_install_ruleset event "gossip" attributes {"eci": eci}
         }
     }
 
@@ -90,6 +91,26 @@ ruleset child_ruleset_installer {
             "attrs": {
                 "absoluteURL": "file:///Users/byu/cs462/lab8/temperature_store.krl",
                 "rid": "temperature_store",
+                "config": {}
+            }
+        })
+    }
+
+    rule install_gossip {
+        select when child_install_ruleset gossip
+
+        pre {
+            eci = event:attrs{"eci"}
+        }
+
+        event:send({ 
+            "eci": eci, 
+            "eid": "install-ruleset",
+            "domain": "wrangler", 
+            "type": "install_ruleset_request",
+            "attrs": {
+                "absoluteURL": "file:///Users/byu/cs462/lab8/gossip.krl",
+                "rid": "gossip",
                 "config": {}
             }
         })

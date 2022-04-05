@@ -58,26 +58,4 @@ ruleset temperature_store {
             clear ent:threshold_violations
         }
     }
-
-    rule report_requested {
-        select when sensor report_start
-
-        pre {
-            rci = event:attrs{"rci"}
-            agg_Tx = event:attrs{"Rx"}
-            my_Rx = event:attrs{"Tx"}
-        }
-        
-        event:send({ 
-            "eci": agg_Tx, 
-            "eid": "report",
-            "domain": "manager", 
-            "type": "report_collect",
-            "attrs": {
-                "rci": rci,
-                "Rx": my_Rx,
-                "temperature": temperatures().head()
-            }
-        })
-    }
 }

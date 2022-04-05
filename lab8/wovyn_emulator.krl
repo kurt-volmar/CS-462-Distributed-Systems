@@ -51,7 +51,7 @@ ruleset wovyn_emitter {
       pre {
   
         // Bounds should not be fixed, but are for now
-        period = ent:heartbeat_period.defaultsTo(20)
+        period = ent:heartbeat_period.defaultsTo(10000)
                  .klog("Heartbeat period: "); // in seconds
         temperatureF = (random:integer(lower = 700, upper = 800)/10) // one decimal digit of precision
                        .klog("TemperatureF: ");

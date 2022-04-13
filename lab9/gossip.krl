@@ -2,8 +2,8 @@
 ruleset gossip {
 
     meta {
-        provides schedules, messages, get_seen, sensor_to_sub, should_process
-        shares schedules, messages, get_seen, sensor_to_sub, should_process
+        provides schedules, messages, get_seen, sensor_to_sub, should_process, violation_counter
+        shares schedules, messages, get_seen, sensor_to_sub, should_process, violation_counter
 
         use module io.picolabs.wrangler alias wrangler
         use module io.picolabs.subscription alias subs
@@ -98,7 +98,7 @@ ruleset gossip {
                 my_seen_x = my_seen{x}.isnull() => -1 | my_seen{x}
                 peer_seen_x = peer_seen{x}.isnull() => -1 | peer_seen{x}
                 my_seen_x.klog("MY_SEEN_X") > peer_seen_x.klog("PEER_SEEN_X")
-            }).klog("NEED_UPDATES")
+            }).difference([peer_name]).klog("NEED_UPDATES")
             n_need_updates = need_updates.length().klog("N_NEEDS_UPDATES")
             sensor_to_update = need_updates{random:integer(n_need_updates => n_need_updates-1 | 0).klog("RAND")}.klog("SENSOR_TO_UPDATE")
             sequence_min = ((peer_seen{sensor_to_update}.isnull() => 0 | peer_seen{sensor_to_update} + 1)).klog("SEQ_MIN")
@@ -170,6 +170,36 @@ ruleset gossip {
         should_process = function() {
             ent:should_process.defaultsTo(true)
         }
+
+        in_violation = function() {
+            ent:in_violation.defaultsTo(false)
+        }
+
+        violation_counter = function() {
+            ent:violation_counter.defaultsTo(0)
+        }
+
+        sum_violation_messages = function(messages) {
+            messages
+                .keys()
+                .map(function(key){
+                    messages{key}.values()
+                })
+                .reduce(function(a, b){
+                    a.union(b)
+                }).klog("REDUCE")
+                .map(function(x){x{"increment"}})
+                .reduce(function(a,b){a+b}).klog("YARGY")
+
+            // sum = messages
+            //     .map(function(v,k){v.values()}).klog("MAPa")
+            //     .collect(function(x){x.values()}).klog("COLLECTa")
+            // sum
+        //         .filter(function(x){x{"type"} == "threshold_violation_status"}).klog("FILTER")
+        //         .map(function(x){x{"increment"}}).klog("MAP")
+        //         .reduce(function(a,b){a + b}).klog("REDUCE")
+        //     sum.isnull().klog("IS_NULL") => 0.klog("ZERO") | sum.klog("RETURN SUM")
+        }
     }
 
     rule start_heartbeat {
@@ -209,24 +239,66 @@ ruleset gossip {
     }
 
     rule sensor_reading {
-        select when wovyn heartbeat
+        select when wovyn new_temperature_reading
 
         pre {
-            temperature_f = event:attrs{["genericThing", "data", "temperature"]}[0]{"temperatureF"}
+            temperature = event:attrs{"temperature"}
+            timestamp = event:attrs{"timestamp"}
+            is_threshold_violation = event:attrs{"is_threshold_violation"}.as("Boolean").klog("THRESH ORIG")
+            // temperature_f = event:attrs{["genericThing", "data", "temperature"]}[0]{"temperatureF"}
         }
 
         always {
-            data = {
+            // Reading message
+            increment = (in_violation() == false) && (is_threshold_violation == true) => 1
+                        | (in_violation() == true) && (is_threshold_violation == false) => -1
+                        | 0
+            reading_data = {
                 "message_id": name + ":" + sequence_number(),
                 "sensor_id": name,
-                "temperature": temperature_f,
-                "timestamp": time:now()
+                "temperature": temperature,
+                "timestamp": timestamp,
+                "increment": increment
             }
-            ent:messages := messages().put([name, data{"message_id"}], data)
+            ent:in_violation := is_threshold_violation
+            ent:messages := messages().put([name, reading_data{"message_id"}], reading_data)
             ent:seen := get_seen().put([name, name], sequence_number())
             ent:sequence_number := sequence_number() + 1
+            // ent:violation_counter := (violation_counter().klog("CURRENT") + increment.klog("INCREMENT")).klog("NEW VAL")
+            ent:violation_counter := sum_violation_messages(messages())
+            // raise wovyn event "self_threshold_violation" 
+            //     attributes event:attrs 
+            //     if is_threshold_violation == true
         }
     }
+
+    // rule sensor_violation {
+    //     select when wovyn self_threshold_violation
+
+    //     pre {
+    //         temperature = event:attrs{"temperature"}
+    //         timestamp = event:attrs{"timestamp"}
+    //         is_threshold_violation = event:attrs{"is_threshold_violation"}.klog("EVENT THRESH").as("Boolean").klog("THRESH")
+    //         // temperature_f = event:attrs{["genericThing", "data", "temperature"]}[0]{"temperatureF"}
+    //     }
+
+    //     always {
+    //         // increment = (in_violation() == false) && (is_threshold_violation == true) => 1
+    //         //             | (in_violation() == true) && (is_threshold_violation == false) => -1
+    //         //             | 0
+    //         // threshold_violation_data = {
+    //         //     "message_id": name + ":" + sequence_number(),
+    //         //     "sensor_id": name,
+    //         //     "increment": increment,
+    //         //     "type": "threshold_violation_status"
+    //         // }
+    //         // ent:in_violation := is_threshold_violation
+    //         // ent:messages := messages().put([name, threshold_violation_data{"message_id"}], threshold_violation_data)
+    //         // ent:seen := get_seen().put([name, name], sequence_number())
+    //         // ent:sequence_number := sequence_number() + 1
+    //         // ent:violation_counter := violation_counter() + increment
+    //     }
+    // }
 
     rule heartbeat {
         select when gossip heartbeat
@@ -298,12 +370,21 @@ ruleset gossip {
             message_sequence_number = extract_message_sequence_number(message_id)
         }
 
-        fired {
+        
+
+        always {
+            // Put in messages map
             ent:messages := messages().put([sensor_id, message_id], rumor) if should_process() == true
+
+            // Record as seen
             ent:seen := get_seen(){[name, sensor_id]}.isnull() => get_seen().put([name, sensor_id], -1) | get_seen() if should_process() == true
             ent:seen := get_seen().klog("MY_SEEN1")
             ent:seen := get_seen(){[name, sensor_id]} == (message_sequence_number - 1) => get_seen().put([name, sensor_id], message_sequence_number) | get_seen() if should_process() == true
             ent:seen := get_seen().klog("MY_SEEN2")
+
+            // Update violation counter
+            // ent:violation_counter := violation_counter() + rumor{"increment"} if should_process() == true
+            ent:violation_counter := sum_violation_messages(messages()) 
         }
     }
 
@@ -331,6 +412,20 @@ ruleset gossip {
 
         always {
             ent:should_process := should_process() == true => false | true
+        }
+    }
+
+    rule pseudo_new_temperature_reading {
+        select when wovyn pseudo_new_temperature_reading
+
+        pre {
+            temperature = event:attrs{"temperature"}
+            timestampe = event:attrs{"timestamp"}
+            is_threshold_violation = event:attrs{"is_threshold_violation"}
+        }
+
+        always {
+            raise wovyn event "new_temperature_reading" attributes event:attrs
         }
     }
 }

@@ -22,7 +22,8 @@ ruleset wovyn_base {
             log info "process_heartbeat"
             raise wovyn event "new_temperature_reading" attributes {
                 "temperature": temperature_f,
-                "timestamp": time:now()
+                "timestamp": time:now(),
+                "is_threshold_violation": temperature_f > sensor:threshold()
             }
         }
     }

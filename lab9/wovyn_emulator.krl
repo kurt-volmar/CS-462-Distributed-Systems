@@ -20,7 +20,7 @@ ruleset wovyn_emitter {
   
       operating_state = function(){ent:emitter_state};
   
-      default_heartbeat_period = 5; //seconds
+      default_heartbeat_period = 10; //seconds
   
       my_rid = function(){meta:rid};
   

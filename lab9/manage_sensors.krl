@@ -35,14 +35,6 @@ ruleset manage_sensors {
             }
         }
 
-        // gossip_setup_config = {
-        //     "nodes": ["A", "B"],
-        //     "subs": {
-        //         "A": ["B"],
-        //         "B": []
-        //     }
-        // }
-
         default_threshold = 78
 
         default_number = "801-549-7921"
